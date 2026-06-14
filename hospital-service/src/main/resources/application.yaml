@@ -1,0 +1,22 @@
+
+
+server:
+  port: 8002
+
+spring:
+  name: hospital-service
+  datasource:
+    url: jdbc:postgresql://localhost:5432/healthcare-appointment
+    username: postgres
+    password: ps@admin
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        default_schema: hospital_service
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+
+auth:
+  service:
+    url: http://localhost:8001
