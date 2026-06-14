@@ -617,3 +617,18 @@ Mandatory EHR & Prescription after visit	EHR & Prescription services – billing
 Admin registers hospital → Hospital Admin auto‑created	POST /hospitals internally calls auth‑service to create the admin user
 Kafka only for notifications	Appointment service produces, notification service consumes
 All other inter‑service calls are REST	Every service follows this
+
+
+Exactly — the Super Admin is the only user who can create a hospital.
+This is how it works in the plan:
+
+Super Admin logs in (POST /auth/login).
+
+Super Admin calls POST /hospitals (hospital‑service, port 8002).
+
+The hospital‑service internally calls POST /auth/admin/create-user to create a HOSPITAL_ADMIN account for the new hospital.
+
+No self‑registration for hospitals — it’s entirely controlled by the Super Admin.
+
+The architecture is aligned with your statement.
+Now we can build the hospital‑service. Ready?

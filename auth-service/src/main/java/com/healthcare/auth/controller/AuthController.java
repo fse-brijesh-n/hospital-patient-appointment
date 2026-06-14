@@ -16,22 +16,27 @@ public class AuthController {
 
     @PostMapping("/register")
     @ResponseStatus(HttpStatus.CREATED)
-    public AuthResponse register(@Valid @RequestBody RegisterRequest request) {
-        return authService.registerPatient(request);
+    public AuthResponse register(@Valid @RequestBody RegisterRequest request)
+    {
+        return authService.register(request);
+
     }
 
     @PostMapping("/login")
-    public AuthResponse login(@Valid @RequestBody LoginRequest request) {
+    public AuthResponse login(@Valid @RequestBody LoginRequest request)
+    {
         return authService.login(request);
     }
 
     @PostMapping("/verify")
-    public VerifyResponse verify(@Valid @RequestBody VerifyRequest request) {
+    public VerifyResponse verify(@Valid @RequestBody VerifyRequest request)
+    {
         return authService.verifyToken(request.getToken());
     }
 
     @PostMapping("/refresh")
-    public AuthResponse refresh(@Valid @RequestBody RefreshRequest request) {
+    public AuthResponse refresh(@Valid @RequestBody RefreshRequest request)
+    {
         return authService.refreshAccessToken(request.getRefreshToken());
     }
 

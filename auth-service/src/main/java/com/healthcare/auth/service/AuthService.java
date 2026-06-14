@@ -9,9 +9,12 @@ import io.jsonwebtoken.Claims;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -23,16 +26,45 @@ public class AuthService {
     private final JwtUtil jwtUtil;
     private final PasswordEncoder passwordEncoder;
 
+//    @Transactional
+//    public AuthResponse registerPatient(RegisterRequest request) {
+//        if (userRepo.existsByEmail(request.getEmail())) {
+//            throw new IllegalStateException("Email already registered");
+//        }
+//
+//        User user = User.builder()
+//                .email(request.getEmail())
+//                .passwordHash(passwordEncoder.encode(request.getPassword()))
+//                .role(Role.PATIENT)
+//                .build();
+//
+//        return saveAndBuildAuthResponse(user);
+//    }
+
+    @Value("${auth.allowed-self-registration-roles}")
+    private List<String> allowedSelfRegistrationRoles;
+
+    @Value("${auth.default-self-registration-role}")
+    private String defaultRole;
+
     @Transactional
-    public AuthResponse registerPatient(RegisterRequest request) {
+    public AuthResponse register(RegisterRequest request) {
         if (userRepo.existsByEmail(request.getEmail())) {
             throw new IllegalStateException("Email already registered");
         }
 
+        // Determine role
+        String requestedRole = request.getRole() != null ? request.getRole() : defaultRole;
+        if (!allowedSelfRegistrationRoles.contains(requestedRole.toUpperCase())) {
+            throw new IllegalArgumentException("Role not allowed for self‑registration");
+        }
+
+        Role role = Role.valueOf(requestedRole.toUpperCase());
+
         User user = User.builder()
                 .email(request.getEmail())
                 .passwordHash(passwordEncoder.encode(request.getPassword()))
-                .role(Role.PATIENT)
+                .role(role)
                 .build();
 
         return saveAndBuildAuthResponse(user);

@@ -26,3 +26,9 @@ jwt:
 super-admin:
   email: admin@healthcare.com
   password: Admin@123
+
+auth:
+  # comma‑separated list of roles a user can choose during self‑registration
+  allowed-self-registration-roles: PATIENT
+  # optional: a default role if the user doesn’t specify one
+  default-self-registration-role: PATIENT
