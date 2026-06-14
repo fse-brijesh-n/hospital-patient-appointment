@@ -1,0 +1,28 @@
+server:
+  port: 8001
+
+spring:
+  application:
+    name: auth-service
+  datasource:
+    url: jdbc:postgresql://localhost:5432/healthcare-appointment
+    username: postgres
+    password: ps@admin
+  jpa:
+    hibernate:
+      ddl-auto: update
+      properties:
+          hibernate:
+            default_schema: auth_service
+            dialect: org.hibernate.dialect.PostgreSQLDialect
+
+
+jwt:
+  secret: 5367566B59703373367639792F423F4528482B4D6251655468576D5A71347437
+  access-token-expiration: 3600000
+  refresh-token-expiration: 604800000
+
+
+super-admin:
+  email: admin@healthcare.com
+  password: Admin@123
