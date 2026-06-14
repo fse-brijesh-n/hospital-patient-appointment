@@ -14,6 +14,7 @@ import java.util.UUID;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
+@EqualsAndHashCode
 public class User
 {
     @Id
@@ -24,7 +25,7 @@ public class User
     private String email;
 
     @Column(nullable = false,name = "password_hash")
-    private String password_hash;
+    private String passwordHash;
 
     public enum Role {
         PATIENT, DOCTOR, HOSPITAL_ADMIN, SUPER_ADMIN
