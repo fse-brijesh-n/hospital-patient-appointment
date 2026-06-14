@@ -1,7 +1,7 @@
 API Documentation – Healthcare Microservices System
 This document lists every endpoint with its HTTP method, URL, access role, request body (where applicable), and example response.
 All services return JSON. Authentication uses a JWT passed in the Authorization: Bearer <token> header.
-
+```spring init -d=web,data-jpa,postgresql,security,validation,lombok -g=com.healthcare -a=hospital-service -n=hospital-service --package-name=com.healthcare.hospital --build=maven --java-version=17 hospital-service```
 1. Auth Service (port 8001)
    POST /auth/register
    Access: Public
