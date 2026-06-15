@@ -1,0 +1,864 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MediCare – Complete Platform</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+    <style>
+        body { background: #f4f6f9; font-family: 'Segoe UI', sans-serif; }
+        .sidebar { height: 100vh; position: fixed; top: 0; left: 0; width: 260px; background: #2c3e50; color: #ecf0f1; padding-top: 20px; overflow-y: auto; z-index: 1000; }
+        .sidebar .nav-link { color: #bdc3c7; padding: 12px 20px; display: flex; align-items: center; gap: 10px; border-radius: 5px; margin: 2px 10px; transition: 0.2s; }
+        .sidebar .nav-link:hover, .sidebar .nav-link.active { background: #34495e; color: #fff; }
+        .main-content { margin-left: 260px; padding: 30px; min-height: 100vh; }
+        .card { border: none; border-radius: 12px; box-shadow: 0 4px 25px rgba(0,0,0,0.04); }
+        .toast-container { position: fixed; top: 20px; right: 20px; z-index: 9999; }
+        .btn-icon { display: inline-flex; align-items: center; gap: 5px; }
+        .loading { text-align: center; padding: 40px; }
+        .hidden { display: none !important; }
+        .list-group-item { border-left: none; border-right: none; }
+    </style>
+</head>
+<body>
+    <!-- Toast alerts -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- Auth Page -->
+    <div id="authPage" class="container-fluid vh-100 d-flex justify-content-center align-items-center">
+        <div class="card p-4 shadow" style="width: 400px;">
+            <h3 class="text-center mb-4"><i class="bi bi-heart-pulse"></i> MediCare</h3>
+            <ul class="nav nav-tabs" id="authTabs">
+                <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#loginTab">Login</a></li>
+                <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#registerTab">Register</a></li>
+            </ul>
+            <div class="tab-content mt-3">
+                <div class="tab-pane fade show active" id="loginTab">
+                    <form id="loginForm" autocomplete="off">
+                        <div class="mb-3"><input type="email" class="form-control" placeholder="Email" id="loginEmail" required></div>
+                        <div class="mb-3"><input type="password" class="form-control" placeholder="Password" id="loginPassword" required></div>
+                        <button type="submit" class="btn btn-primary w-100"><i class="bi bi-box-arrow-in-right"></i> Login</button>
+                    </form>
+                </div>
+                <div class="tab-pane fade" id="registerTab">
+                    <form id="registerForm" autocomplete="off">
+                        <div class="mb-3"><input type="email" class="form-control" placeholder="Email" id="regEmail" required></div>
+                        <div class="mb-3"><input type="password" class="form-control" placeholder="Password (min 6)" id="regPassword" required></div>
+                        <button type="submit" class="btn btn-success w-100"><i class="bi bi-person-plus"></i> Register as Patient</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Dashboard -->
+    <div id="dashboard" class="hidden">
+        <div class="sidebar d-flex flex-column">
+            <div class="px-3 mb-4">
+                <h4 class="text-white"><i class="bi bi-heart-pulse"></i> MediCare</h4>
+                <small class="text-muted" id="userInfo"></small>
+            </div>
+            <nav class="nav flex-column" id="sidebarMenu"></nav>
+            <div class="mt-auto p-3">
+                <button class="btn btn-outline-light w-100" id="logoutBtn"><i class="bi bi-box-arrow-right"></i> Logout</button>
+            </div>
+        </div>
+        <div class="main-content" id="contentArea"></div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+    // ===================== CONFIG =====================
+    const API = {
+        auth: 'http://localhost:8001',
+        hospital: 'http://localhost:8002',
+        patient: 'http://localhost:8003',
+        doctor: 'http://localhost:8004',
+        appointment: 'http://localhost:8005',
+        ehr: 'http://localhost:8006',
+        prescription: 'http://localhost:8007',
+        billing: 'http://localhost:8008',
+        notification: 'http://localhost:8009'
+    };
+
+    let token = localStorage.getItem('token') || null;
+    let userRole = localStorage.getItem('role') || null;
+    let userId = localStorage.getItem('userId') || null;
+    let userEmail = localStorage.getItem('email') || null;
+    let refreshToken = localStorage.getItem('refreshToken') || null;
+
+    // ===================== HELPERS =====================
+    function showToast(msg, type='success') {
+        const container = document.getElementById('toastContainer');
+        const el = document.createElement('div');
+        el.className = `toast align-items-center text-bg-${type} border-0`;
+        el.innerHTML = `<div class="d-flex"><div class="toast-body">${msg}</div><button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div>`;
+        container.appendChild(el);
+        new bootstrap.Toast(el).show();
+        setTimeout(() => el.remove(), 6000);
+    }
+    function showError(msg) { showToast(msg, 'danger'); }
+    function showSuccess(msg) { showToast(msg, 'success'); }
+
+    async function apiCall(method, url, body = null, auth = true) {
+        const headers = { 'Content-Type': 'application/json' };
+        if (auth && token) headers['Authorization'] = `Bearer ${token}`;
+        const options = { method, headers };
+        if (body) options.body = JSON.stringify(body);
+        let response = await fetch(url, options);
+        if (response.status === 401 && auth && refreshToken) {
+            try {
+                const refreshRes = await fetch(`${API.auth}/auth/refresh`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ refreshToken })
+                });
+                if (refreshRes.ok) {
+                    const refreshData = await refreshRes.json();
+                    token = refreshData.accessToken;
+                    refreshToken = refreshData.refreshToken;
+                    localStorage.setItem('token', token);
+                    localStorage.setItem('refreshToken', refreshToken);
+                    headers['Authorization'] = `Bearer ${token}`;
+                    options.headers = headers;
+                    response = await fetch(url, options);
+                } else {
+                    localStorage.clear();
+                    location.reload();
+                    throw new Error('Session expired, please login again');
+                }
+            } catch (e) {
+                localStorage.clear();
+                location.reload();
+                throw new Error('Session expired');
+            }
+        }
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({ message: 'Request failed' }));
+            throw new Error(err.message || err.error || `HTTP ${response.status}`);
+        }
+        if (response.status === 204) return null;
+        return response.json();
+    }
+
+    // ===================== AUTH =====================
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const email = document.getElementById('loginEmail').value.trim();
+        const password = document.getElementById('loginPassword').value;
+        try {
+            const res = await apiCall('POST', `${API.auth}/auth/login`, { email, password }, false);
+            token = res.accessToken;
+            refreshToken = res.refreshToken;
+            userRole = res.role;
+            userId = res.userId;
+            userEmail = res.email;
+            localStorage.setItem('token', token);
+            localStorage.setItem('refreshToken', refreshToken);
+            localStorage.setItem('role', userRole);
+            localStorage.setItem('userId', userId);
+            localStorage.setItem('email', userEmail);
+            showDashboard();
+        } catch (err) { showError(err.message); }
+    });
+
+    document.getElementById('registerForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const email = document.getElementById('regEmail').value.trim();
+        const password = document.getElementById('regPassword').value;
+        try {
+            await apiCall('POST', `${API.auth}/auth/register`, { email, password }, false);
+            showSuccess('Registration successful! Please login.');
+            document.getElementById('registerForm').reset();
+        } catch (err) { showError(err.message); }
+    });
+
+    document.getElementById('logoutBtn').addEventListener('click', () => {
+        if (refreshToken) apiCall('POST', `${API.auth}/auth/logout`, { refreshToken }, true).catch(()=>{});
+        localStorage.clear();
+        location.reload();
+    });
+
+    // ===================== SIDEBAR & NAVIGATION =====================
+    const menuItems = {
+        SUPER_ADMIN: [
+            { id: 'hospitals', label: 'Hospitals', icon: 'bi-building' },
+            { id: 'users', label: 'User Management', icon: 'bi-people' },
+            { id: 'doctors', label: 'Doctors', icon: 'bi-person-badge' },
+            { id: 'patients', label: 'Patients', icon: 'bi-person' },
+            { id: 'appointments', label: 'Appointments', icon: 'bi-calendar-check' },
+            { id: 'ehr', label: 'EHR', icon: 'bi-file-medical' },
+            { id: 'prescriptions', label: 'Prescriptions', icon: 'bi-capsule' },
+            { id: 'billing', label: 'Billing', icon: 'bi-cash-stack' },
+            { id: 'notifications', label: 'Notifications', icon: 'bi-bell' }
+        ],
+        HOSPITAL_ADMIN: [
+            { id: 'hospitals', label: 'My Hospital', icon: 'bi-building' },
+            { id: 'doctors', label: 'Doctors', icon: 'bi-person-badge' },
+            { id: 'patients', label: 'Patients', icon: 'bi-person' },
+            { id: 'appointments', label: 'Appointments', icon: 'bi-calendar-check' },
+            { id: 'billing', label: 'Billing', icon: 'bi-cash-stack' },
+            { id: 'notifications', label: 'Notifications', icon: 'bi-bell' }
+        ],
+        DOCTOR: [
+            { id: 'doctors', label: 'My Profile & Slots', icon: 'bi-person-badge' },
+            { id: 'appointments', label: 'Appointments', icon: 'bi-calendar-check' },
+            { id: 'ehr', label: 'EHR', icon: 'bi-file-medical' },
+            { id: 'prescriptions', label: 'Prescriptions', icon: 'bi-capsule' }
+        ],
+        PATIENT: [
+            { id: 'patients', label: 'My Profile', icon: 'bi-person' },
+            { id: 'appointments', label: 'Appointments', icon: 'bi-calendar-check' },
+            { id: 'billing', label: 'My Bills', icon: 'bi-cash-stack' }
+        ]
+    };
+
+    function buildSidebar() {
+        const menu = document.getElementById('sidebarMenu');
+        const items = menuItems[userRole] || [];
+        menu.innerHTML = items.map(item =>
+            `<a class="nav-link" href="#" data-section="${item.id}" onclick="navigate('${item.id}')">
+                <i class="bi ${item.icon}"></i> ${item.label}
+            </a>`
+        ).join('');
+        document.getElementById('userInfo').innerText = `${userEmail} (${userRole.replace('_', ' ')})`;
+    }
+
+    function navigate(section) {
+        document.querySelectorAll('#sidebarMenu .nav-link').forEach(l => l.classList.remove('active'));
+        document.querySelector(`[data-section="${section}"]`)?.classList.add('active');
+        renderSection(section);
+    }
+
+    function renderSection(section) {
+        const content = document.getElementById('contentArea');
+        switch(section) {
+            case 'hospitals': renderHospitals(); break;
+            case 'users': renderUsers(); break;
+            case 'doctors': renderDoctors(); break;
+            case 'patients': renderPatients(); break;
+            case 'appointments': renderAppointments(); break;
+            case 'ehr': renderEhr(); break;
+            case 'prescriptions': renderPrescriptions(); break;
+            case 'billing': renderBilling(); break;
+            case 'notifications': renderNotifications(); break;
+            default: content.innerHTML = '<h4>Welcome to MediCare</h4>';
+        }
+    }
+
+    // ===================== HOSPITALS =====================
+    async function renderHospitals() {
+        let html = `<div class="card p-4"><h4><i class="bi bi-building"></i> Hospitals</h4>`;
+        if (userRole === 'SUPER_ADMIN') {
+            html += `
+            <form id="hospForm" class="mb-4">
+                <div class="row g-2">
+                    <div class="col-md-4"><input class="form-control" placeholder="Name" id="hospName" required></div>
+                    <div class="col-md-4"><input class="form-control" placeholder="Address" id="hospAddr"></div>
+                    <div class="col-md-4"><input class="form-control" placeholder="Phone" id="hospPhone"></div>
+                    <div class="col-md-4"><input class="form-control" placeholder="Hospital Email" id="hospEmail"></div>
+                    <div class="col-md-4"><input class="form-control" placeholder="Admin Email" id="hospAdminEmail" required></div>
+                    <div class="col-md-4"><input class="form-control" placeholder="Admin Password" type="password" id="hospAdminPass" required></div>
+                </div>
+                <button type="submit" class="btn btn-success mt-2 btn-icon"><i class="bi bi-plus-circle"></i> Create Hospital</button>
+            </form>`;
+        }
+        html += `<div id="hospList" class="loading">Loading...</div></div>`;
+        document.getElementById('contentArea').innerHTML = html;
+
+        if (userRole === 'SUPER_ADMIN') {
+            document.getElementById('hospForm').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                try {
+                    await apiCall('POST', `${API.hospital}/hospitals`, {
+                        name: document.getElementById('hospName').value,
+                        address: document.getElementById('hospAddr').value,
+                        phone: document.getElementById('hospPhone').value,
+                        email: document.getElementById('hospEmail').value,
+                        adminEmail: document.getElementById('hospAdminEmail').value,
+                        adminPassword: document.getElementById('hospAdminPass').value
+                    });
+                    showSuccess('Hospital created');
+                    loadHospitalList();
+                } catch (err) { showError(err.message); }
+            });
+        }
+        loadHospitalList();
+    }
+
+    async function loadHospitalList() {
+        try {
+            const hospitals = await apiCall('GET', `${API.hospital}/hospitals`, null, true);
+            const list = hospitals.map(h => `<li class="list-group-item d-flex justify-content-between align-items-center">
+                <span><strong>${h.name}</strong> – ${h.address || 'N/A'}</span>
+                <span class="badge bg-secondary">${h.adminUserId ? 'Admin: '+h.adminUserId.substring(0,8)+'...' : ''}</span>
+            </li>`).join('');
+            document.getElementById('hospList').innerHTML = hospitals.length ? `<ul class="list-group">${list}</ul>` : '<p class="text-muted">No hospitals yet.</p>';
+        } catch (err) { document.getElementById('hospList').innerHTML = `<p class="text-danger">${err.message}</p>`; }
+    }
+
+    // ===================== USERS (Admin) =====================
+    function renderUsers() {
+        if (userRole !== 'SUPER_ADMIN') { document.getElementById('contentArea').innerHTML = '<div class="alert alert-warning">Access denied</div>'; return; }
+        document.getElementById('contentArea').innerHTML = `
+            <div class="card p-4">
+                <h4><i class="bi bi-people"></i> User Management</h4>
+                <form id="createUserForm">
+                    <div class="row g-2">
+                        <div class="col-md-4"><input class="form-control" placeholder="Email" id="newEmail" required></div>
+                        <div class="col-md-4"><input class="form-control" placeholder="Password" type="password" id="newPass" required></div>
+                        <div class="col-md-4">
+                            <select class="form-select" id="newRole">
+                                <option value="PATIENT">Patient</option>
+                                <option value="DOCTOR">Doctor</option>
+                                <option value="HOSPITAL_ADMIN">Hospital Admin</option>
+                            </select>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-success mt-2 btn-icon"><i class="bi bi-person-plus"></i> Create User</button>
+                </form>
+            </div>`;
+        document.getElementById('createUserForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            try {
+                await apiCall('POST', `${API.auth}/auth/admin/create-user`, {
+                    email: document.getElementById('newEmail').value,
+                    password: document.getElementById('newPass').value,
+                    role: document.getElementById('newRole').value
+                });
+                showSuccess('User created');
+                document.getElementById('createUserForm').reset();
+            } catch (err) { showError(err.message); }
+        });
+    }
+
+    // ===================== PATIENTS =====================
+    async function renderPatients() {
+        document.getElementById('contentArea').innerHTML = `<div class="card p-4"><h4><i class="bi bi-person"></i> Patient</h4><div id="patientContent" class="loading">Loading...</div></div>`;
+        if (userRole === 'PATIENT') {
+            try {
+                const profile = await apiCall('GET', `${API.patient}/patients/me`);
+                showPatientProfile(profile);
+            } catch (err) {
+                if (err.message.includes('404')) {
+                    showPatientCreationForm();
+                } else {
+                    document.getElementById('patientContent').innerHTML = `<div class="alert alert-danger">${err.message}</div>`;
+                }
+            }
+        } else {
+            document.getElementById('patientContent').innerHTML = `
+                <input type="text" id="patientIdInput" class="form-control mb-2" placeholder="Patient UUID">
+                <button class="btn btn-primary btn-icon" onclick="loadPatientById()"><i class="bi bi-search"></i> Load</button>
+                <div id="patientView" class="mt-3"></div>`;
+        }
+    }
+
+    function showPatientCreationForm() {
+        document.getElementById('patientContent').innerHTML = `
+            <h5>Create Your Profile</h5>
+            <form id="createPatientForm">
+                <div class="mb-3"><label>Hospital ID</label><input type="text" class="form-control" id="patHospitalId" placeholder="UUID from /hospitals" required></div>
+                <div class="row g-2">
+                    <div class="col-md-6"><input class="form-control" placeholder="First Name" id="patFirstName"></div>
+                    <div class="col-md-6"><input class="form-control" placeholder="Last Name" id="patLastName"></div>
+                    <div class="col-md-4"><input class="form-control" placeholder="Phone" id="patPhone"></div>
+                </div>
+                <button type="submit" class="btn btn-primary mt-2 btn-icon"><i class="bi bi-save"></i> Create Profile</button>
+            </form>`;
+        document.getElementById('createPatientForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            try {
+                await apiCall('POST', `${API.patient}/patients/me`, {
+                    hospitalId: document.getElementById('patHospitalId').value,
+                    email: userEmail,
+                    firstName: document.getElementById('patFirstName').value,
+                    lastName: document.getElementById('patLastName').value,
+                    phone: document.getElementById('patPhone').value
+                });
+                showSuccess('Profile created');
+                renderPatients();
+            } catch (err) { showError(err.message); }
+        });
+    }
+
+    function showPatientProfile(profile) {
+        document.getElementById('patientContent').innerHTML = `
+            <form id="updatePatientForm">
+                <div class="row g-2">
+                    <div class="col-md-6"><input class="form-control" id="patFirstName" value="${profile.firstName || ''}" placeholder="First Name"></div>
+                    <div class="col-md-6"><input class="form-control" id="patLastName" value="${profile.lastName || ''}" placeholder="Last Name"></div>
+                    <div class="col-md-4"><input class="form-control" id="patPhone" value="${profile.phone || ''}" placeholder="Phone"></div>
+                    <div class="col-md-4"><input class="form-control" id="patDob" value="${profile.dateOfBirth || ''}" placeholder="DOB (YYYY-MM-DD)"></div>
+                    <div class="col-md-4"><input class="form-control" id="patAddress" value="${profile.address || ''}" placeholder="Address"></div>
+                    <div class="col-md-4"><input class="form-control" id="patEmergency" value="${profile.emergencyContact || ''}" placeholder="Emergency Contact"></div>
+                    <div class="col-md-4"><input class="form-control" id="patBlood" value="${profile.bloodType || ''}" placeholder="Blood Type"></div>
+                    <div class="col-md-4"><input class="form-control" id="patAllergies" value="${profile.allergies || ''}" placeholder="Allergies"></div>
+                    <div class="col-12"><textarea class="form-control" id="patHistory" placeholder="Medical History">${profile.medicalHistory || ''}</textarea></div>
+                </div>
+                <button type="submit" class="btn btn-primary mt-2 btn-icon"><i class="bi bi-save"></i> Update</button>
+            </form>`;
+        document.getElementById('updatePatientForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const data = {
+                firstName: document.getElementById('patFirstName').value,
+                lastName: document.getElementById('patLastName').value,
+                phone: document.getElementById('patPhone').value,
+                dateOfBirth: document.getElementById('patDob').value || null,
+                address: document.getElementById('patAddress').value,
+                emergencyContact: document.getElementById('patEmergency').value,
+                bloodType: document.getElementById('patBlood').value,
+                allergies: document.getElementById('patAllergies').value,
+                medicalHistory: document.getElementById('patHistory').value
+            };
+            try {
+                await apiCall('PATCH', `${API.patient}/patients/me`, data);
+                showSuccess('Profile updated');
+            } catch (err) { showError(err.message); }
+        });
+    }
+
+    window.loadPatientById = async function() {
+        const id = document.getElementById('patientIdInput').value;
+        try {
+            const patient = await apiCall('GET', `${API.patient}/patients/${id}`);
+            document.getElementById('patientView').innerHTML = `<pre>${JSON.stringify(patient, null, 2)}</pre>`;
+        } catch (err) { showError(err.message); }
+    };
+
+    // ===================== DOCTORS =====================
+    async function renderDoctors() {
+        document.getElementById('contentArea').innerHTML = `<div class="card p-4"><h4><i class="bi bi-person-badge"></i> Doctor</h4><div id="doctorContent" class="loading">Loading...</div></div>`;
+        if (userRole === 'DOCTOR') {
+            try {
+                const profile = await apiCall('GET', `${API.doctor}/doctors/me`);
+                showDoctorProfile(profile);
+            } catch (err) {
+                if (err.message.includes('404')) {
+                    showDoctorCreationForm();
+                } else {
+                    document.getElementById('doctorContent').innerHTML = `<div class="alert alert-danger">${err.message}</div>`;
+                }
+            }
+        } else {
+            document.getElementById('doctorContent').innerHTML = `
+                <input type="text" id="doctorIdInput" class="form-control mb-2" placeholder="Doctor UUID">
+                <button class="btn btn-primary btn-icon" onclick="loadDoctorById()"><i class="bi bi-search"></i> Load</button>
+                <div id="doctorView" class="mt-3"></div>`;
+        }
+    }
+
+    function showDoctorCreationForm() {
+        document.getElementById('doctorContent').innerHTML = `
+            <h5>Create Your Doctor Profile</h5>
+            <form id="createDoctorForm">
+                <div class="mb-3"><label>Hospital ID</label><input type="text" class="form-control" id="docHospitalId" placeholder="UUID" required></div>
+                <div class="row g-2">
+                    <div class="col-md-6"><input class="form-control" placeholder="First Name" id="docFirstName"></div>
+                    <div class="col-md-6"><input class="form-control" placeholder="Last Name" id="docLastName"></div>
+                    <div class="col-md-4"><input class="form-control" placeholder="Phone" id="docPhone"></div>
+                </div>
+                <button type="submit" class="btn btn-primary mt-2 btn-icon"><i class="bi bi-save"></i> Create Profile</button>
+            </form>`;
+        document.getElementById('createDoctorForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            try {
+                await apiCall('POST', `${API.doctor}/doctors/me`, {
+                    hospitalId: document.getElementById('docHospitalId').value,
+                    email: userEmail,
+                    firstName: document.getElementById('docFirstName').value,
+                    lastName: document.getElementById('docLastName').value,
+                    phone: document.getElementById('docPhone').value
+                });
+                showSuccess('Doctor profile created');
+                renderDoctors();
+            } catch (err) { showError(err.message); }
+        });
+    }
+
+    async function showDoctorProfile(profile) {
+        let html = `
+            <form id="updateDoctorForm">
+                <div class="row g-2">
+                    <div class="col-md-6"><input class="form-control" id="docFirstName" value="${profile.firstName || ''}" placeholder="First Name"></div>
+                    <div class="col-md-6"><input class="form-control" id="docLastName" value="${profile.lastName || ''}" placeholder="Last Name"></div>
+                    <div class="col-md-4"><input class="form-control" id="docPhone" value="${profile.phone || ''}" placeholder="Phone"></div>
+                    <div class="col-md-4"><input class="form-control" id="docSpecialization" value="${profile.specialization || ''}" placeholder="Specialization"></div>
+                    <div class="col-md-4"><input class="form-control" id="docLicense" value="${profile.licenseNumber || ''}" placeholder="License"></div>
+                    <div class="col-md-4"><input type="number" class="form-control" id="docFee" value="${profile.consultationFee || ''}" placeholder="Consultation Fee"></div>
+                    <div class="col-12"><textarea class="form-control" id="docBio" placeholder="Bio">${profile.bio || ''}</textarea></div>
+                </div>
+                <button type="submit" class="btn btn-primary mt-2 btn-icon"><i class="bi bi-save"></i> Update</button>
+            </form>
+            <hr>
+            <h5><i class="bi bi-clock"></i> Availability Slots</h5>
+            <div id="slotList" class="loading">Loading slots...</div>
+            <form id="addSlotForm" class="mt-2">
+                <div class="row g-2">
+                    <div class="col-md-4"><input type="date" class="form-control" id="slotDate" required></div>
+                    <div class="col-md-4"><input type="time" class="form-control" id="slotStart" required></div>
+                    <div class="col-md-4"><input type="time" class="form-control" id="slotEnd" required></div>
+                </div>
+                <button type="submit" class="btn btn-success mt-2 btn-icon"><i class="bi bi-plus-circle"></i> Add Slot</button>
+            </form>`;
+        document.getElementById('doctorContent').innerHTML = html;
+
+        document.getElementById('updateDoctorForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const data = {
+                firstName: document.getElementById('docFirstName').value,
+                lastName: document.getElementById('docLastName').value,
+                phone: document.getElementById('docPhone').value,
+                specialization: document.getElementById('docSpecialization').value,
+                licenseNumber: document.getElementById('docLicense').value,
+                consultationFee: parseFloat(document.getElementById('docFee').value) || null,
+                bio: document.getElementById('docBio').value
+            };
+            try {
+                await apiCall('PATCH', `${API.doctor}/doctors/me`, data);
+                showSuccess('Profile updated');
+            } catch (err) { showError(err.message); }
+        });
+
+        document.getElementById('addSlotForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            try {
+                await apiCall('POST', `${API.doctor}/doctors/me/slots`, {
+                    date: document.getElementById('slotDate').value,
+                    startTime: document.getElementById('slotStart').value,
+                    endTime: document.getElementById('slotEnd').value
+                });
+                showSuccess('Slot added');
+                loadDoctorSlots(profile.id);
+            } catch (err) { showError(err.message); }
+        });
+
+        loadDoctorSlots(profile.id);
+    }
+
+    async function loadDoctorSlots(doctorId) {
+        try {
+            const slots = await apiCall('GET', `${API.doctor}/doctors/${doctorId}/slots`);
+            const list = slots.map(s => `<li class="list-group-item d-flex justify-content-between">
+                <span>${s.date} (${s.startTime}-${s.endTime})</span>
+                <span class="badge ${s.booked ? 'bg-danger' : 'bg-success'}">${s.booked ? 'Booked' : 'Free'}</span>
+            </li>`).join('');
+            document.getElementById('slotList').innerHTML = slots.length ? `<ul class="list-group">${list}</ul>` : '<p class="text-muted">No slots yet.</p>';
+        } catch (err) { document.getElementById('slotList').innerHTML = `<p class="text-danger">${err.message}</p>`; }
+    }
+
+    window.loadDoctorById = async function() {
+        const id = document.getElementById('doctorIdInput').value;
+        try {
+            const doctor = await apiCall('GET', `${API.doctor}/doctors/${id}`);
+            document.getElementById('doctorView').innerHTML = `<pre>${JSON.stringify(doctor, null, 2)}</pre>`;
+        } catch (err) { showError(err.message); }
+    };
+
+    // ===================== APPOINTMENTS =====================
+    async function renderAppointments() {
+        let html = `<div class="card p-4"><h4><i class="bi bi-calendar-check"></i> Appointments</h4>`;
+        if (userRole === 'PATIENT') {
+            html += `
+                <form id="bookApptForm" class="mb-4">
+                    <div class="row g-2">
+                        <div class="col-md-4"><input class="form-control" placeholder="Doctor ID (UUID)" id="apptDoctorId" required></div>
+                        <div class="col-md-4"><input type="datetime-local" class="form-control" id="apptTime" required></div>
+                        <div class="col-md-4"><input class="form-control" placeholder="Reason" id="apptReason"></div>
+                    </div>
+                    <button type="submit" class="btn btn-success mt-2 btn-icon"><i class="bi bi-calendar-plus"></i> Book Appointment</button>
+                </form>
+                <div id="patientAppointments" class="loading">Loading...</div>`;
+        } else if (userRole === 'DOCTOR') {
+            html += `<div id="doctorAppointments" class="loading">Loading...</div>`;
+        } else {
+            html += `<div id="allAppointments" class="loading">Loading...</div>`;
+        }
+        html += `</div>`;
+        document.getElementById('contentArea').innerHTML = html;
+
+        if (userRole === 'PATIENT') {
+            document.getElementById('bookApptForm').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                try {
+                    await apiCall('POST', `${API.appointment}/appointments`, {
+                        doctorId: document.getElementById('apptDoctorId').value,
+                        appointmentTime: document.getElementById('apptTime').value,
+                        reason: document.getElementById('apptReason').value
+                    });
+                    showSuccess('Appointment booked');
+                    loadPatientAppointments();
+                } catch (err) { showError(err.message); }
+            });
+            loadPatientAppointments();
+        } else if (userRole === 'DOCTOR') {
+            loadDoctorAppointments();
+        } else {
+            loadAllAppointments();
+        }
+    }
+
+    async function loadPatientAppointments() {
+        try {
+            const response = await apiCall('GET', `${API.appointment}/appointments/patient/me`);
+            const apps = Array.isArray(response) ? response : (response.content || []);
+            const list = apps.map(a => `<li class="list-group-item d-flex justify-content-between">
+                <span><strong>${a.appointmentTime}</strong> – Dr. ${a.doctorId} (${a.status})</span>
+                <button class="btn btn-sm btn-warning" onclick="cancelAppointment('${a.id}')">Cancel</button>
+            </li>`).join('');
+            document.getElementById('patientAppointments').innerHTML = apps.length ? `<ul class="list-group">${list}</ul>` : '<p>No appointments.</p>';
+        } catch (err) { document.getElementById('patientAppointments').innerHTML = `<p class="text-danger">${err.message}</p>`; }
+    }
+
+    async function loadDoctorAppointments() {
+        try {
+            const response = await apiCall('GET', `${API.appointment}/appointments/doctor/me`);
+            const apps = Array.isArray(response) ? response : (response.content || []);
+            const list = apps.map(a => `
+                <li class="list-group-item">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div><strong>${a.appointmentTime}</strong> – Patient: ${a.patientId} (${a.status})</div>
+                        <div class="btn-group">
+                            ${a.status === 'REQUESTED' || a.status === 'PENDING' ? `
+                                <button class="btn btn-sm btn-success" onclick="acceptAppt('${a.id}')">Accept</button>
+                                <button class="btn btn-sm btn-danger" onclick="rejectAppt('${a.id}')">Reject</button>
+                                <button class="btn btn-sm btn-secondary" onclick="markPending('${a.id}')">Pending</button>` : ''}
+                            ${a.status === 'ACCEPTED' ? `<button class="btn btn-sm btn-info" onclick="checkinAppt('${a.id}')">Check-in</button>` : ''}
+                            ${a.status === 'CHECKED_IN' ? `<button class="btn btn-sm btn-primary" onclick="completeAppt('${a.id}')">Complete</button>` : ''}
+                            ${a.status !== 'COMPLETED' && a.status !== 'CANCELLED' ? `<button class="btn btn-sm btn-warning" onclick="cancelAppointment('${a.id}')">Cancel</button>` : ''}
+                        </div>
+                    </div>
+                </li>`).join('');
+            document.getElementById('doctorAppointments').innerHTML = apps.length ? `<ul class="list-group">${list}</ul>` : '<p>No appointments.</p>';
+        } catch (err) { document.getElementById('doctorAppointments').innerHTML = `<p class="text-danger">${err.message}</p>`; }
+    }
+
+    async function loadAllAppointments() {
+        try {
+            const response = await apiCall('GET', `${API.appointment}/appointments`);
+            const apps = response.content || [];
+            const list = apps.map(a => `<li class="list-group-item">${a.appointmentTime} – Patient: ${a.patientId} | Doctor: ${a.doctorId} (${a.status})</li>`).join('');
+            document.getElementById('allAppointments').innerHTML = apps.length ? `<ul class="list-group">${list}</ul>` : '<p>No appointments.</p>';
+        } catch (err) { document.getElementById('allAppointments').innerHTML = `<p class="text-danger">${err.message}</p>`; }
+    }
+
+    // Appointment actions
+    window.cancelAppointment = async (id) => {
+        const url = userRole === 'PATIENT'
+            ? `${API.appointment}/appointments/${id}/cancel`
+            : `${API.appointment}/appointments/${id}/cancel-doctor`;
+        await apiCall('PUT', url);
+        showSuccess('Cancelled');
+        userRole === 'PATIENT' ? loadPatientAppointments() : loadDoctorAppointments();
+    };
+    window.acceptAppt = async (id) => { await apiCall('PUT', `${API.appointment}/appointments/${id}/accept`); showSuccess('Accepted'); loadDoctorAppointments(); };
+    window.rejectAppt = async (id) => {
+        const reason = prompt('Reason for rejection:');
+        if (reason) { await apiCall('PUT', `${API.appointment}/appointments/${id}/reject`, { reason }); showSuccess('Rejected'); loadDoctorAppointments(); }
+    };
+    window.markPending = async (id) => { await apiCall('PUT', `${API.appointment}/appointments/${id}/pending`); showSuccess('Marked pending'); loadDoctorAppointments(); };
+    window.checkinAppt = async (id) => { await apiCall('PUT', `${API.appointment}/appointments/${id}/checkin`); showSuccess('Checked in'); loadDoctorAppointments(); };
+    window.completeAppt = async (id) => { await apiCall('PUT', `${API.appointment}/appointments/${id}/complete`); showSuccess('Completed'); loadDoctorAppointments(); };
+
+    // ===================== EHR =====================
+    async function renderEhr() {
+        document.getElementById('contentArea').innerHTML = `<div class="card p-4"><h4><i class="bi bi-file-medical"></i> Electronic Health Records</h4><div id="ehrContent" class="loading">Loading...</div></div>`;
+        if (userRole === 'DOCTOR') {
+            document.getElementById('ehrContent').innerHTML = `
+                <form id="ehrForm">
+                    <div class="row g-2">
+                        <div class="col-md-6"><input class="form-control" placeholder="Appointment ID" id="ehrApptId" required></div>
+                        <div class="col-md-6"><input class="form-control" placeholder="Patient ID" id="ehrPatientId" required></div>
+                        <div class="col-md-12"><input class="form-control" placeholder="Diagnosis" id="ehrDiagnosis" required></div>
+                        <div class="col-md-12"><input class="form-control" placeholder="Treatment" id="ehrTreatment"></div>
+                        <div class="col-12"><textarea class="form-control" placeholder="Notes" id="ehrNotes"></textarea></div>
+                    </div>
+                    <button type="submit" class="btn btn-primary mt-2 btn-icon"><i class="bi bi-save"></i> Save EHR</button>
+                </form>
+                <hr>
+                <div id="ehrList"></div>`;
+            document.getElementById('ehrForm').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                try {
+                    await apiCall('POST', `${API.ehr}/ehr`, {
+                        appointmentId: document.getElementById('ehrApptId').value,
+                        patientId: document.getElementById('ehrPatientId').value,
+                        diagnosis: document.getElementById('ehrDiagnosis').value,
+                        treatment: document.getElementById('ehrTreatment').value,
+                        notes: document.getElementById('ehrNotes').value
+                    });
+                    showSuccess('EHR saved');
+                } catch (err) { showError(err.message); }
+            });
+        } else if (userRole === 'PATIENT') {
+            document.getElementById('ehrContent').innerHTML = `<input type="text" id="ehrPatientIdInput" class="form-control mb-2" placeholder="Patient UUID"><button class="btn btn-primary" onclick="loadEhrByPatient()">Load</button><div id="ehrListResult"></div>`;
+        }
+    }
+
+    window.loadEhrByPatient = async function() {
+        const id = document.getElementById('ehrPatientIdInput').value;
+        try {
+            const records = await apiCall('GET', `${API.ehr}/ehr/patient/${id}`);
+            const list = records.map(r => `<li class="list-group-item">${r.diagnosis} – ${r.treatment}</li>`).join('');
+            document.getElementById('ehrListResult').innerHTML = records.length ? `<ul class="list-group">${list}</ul>` : '<p>No records.</p>';
+        } catch (err) { showError(err.message); }
+    };
+
+    // ===================== PRESCRIPTIONS =====================
+    async function renderPrescriptions() {
+        document.getElementById('contentArea').innerHTML = `<div class="card p-4"><h4><i class="bi bi-capsule"></i> Prescriptions</h4><div id="presContent" class="loading">Loading...</div></div>`;
+        if (userRole === 'DOCTOR') {
+            document.getElementById('presContent').innerHTML = `
+                <form id="presForm">
+                    <div class="row g-2">
+                        <div class="col-md-6"><input class="form-control" placeholder="Appointment ID" id="presApptId" required></div>
+                        <div class="col-md-6"><input class="form-control" placeholder="Patient ID" id="presPatientId" required></div>
+                        <div class="col-md-6"><input class="form-control" placeholder="Medicines (comma separated)" id="presMedicines" required></div>
+                        <div class="col-md-3"><input class="form-control" placeholder="Dosage" id="presDosage"></div>
+                        <div class="col-md-3"><input class="form-control" placeholder="Duration" id="presDuration"></div>
+                        <div class="col-12"><textarea class="form-control" placeholder="Notes" id="presNotes"></textarea></div>
+                    </div>
+                    <button type="submit" class="btn btn-primary mt-2 btn-icon"><i class="bi bi-save"></i> Save Prescription</button>
+                </form>`;
+            document.getElementById('presForm').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                try {
+                    await apiCall('POST', `${API.prescription}/prescriptions`, {
+                        appointmentId: document.getElementById('presApptId').value,
+                        patientId: document.getElementById('presPatientId').value,
+                        medicines: document.getElementById('presMedicines').value,
+                        dosage: document.getElementById('presDosage').value,
+                        duration: document.getElementById('presDuration').value,
+                        notes: document.getElementById('presNotes').value
+                    });
+                    showSuccess('Prescription saved');
+                } catch (err) { showError(err.message); }
+            });
+        } else if (userRole === 'PATIENT') {
+            document.getElementById('presContent').innerHTML = `<input type="text" id="presPatientIdInput" class="form-control mb-2" placeholder="Patient UUID"><button class="btn btn-primary" onclick="loadPrescriptionsByPatient()">Load</button><div id="presListResult"></div>`;
+        }
+    }
+
+    window.loadPrescriptionsByPatient = async function() {
+        const id = document.getElementById('presPatientIdInput').value;
+        try {
+            const records = await apiCall('GET', `${API.prescription}/prescriptions/patient/${id}`);
+            const list = records.map(r => `<li class="list-group-item">${r.medicines} – ${r.dosage}</li>`).join('');
+            document.getElementById('presListResult').innerHTML = records.length ? `<ul class="list-group">${list}</ul>` : '<p>No prescriptions.</p>';
+        } catch (err) { showError(err.message); }
+    };
+
+    // ===================== BILLING =====================
+    async function renderBilling() {
+        document.getElementById('contentArea').innerHTML = `<div class="card p-4"><h4><i class="bi bi-cash-stack"></i> Billing</h4><div id="billContent" class="loading">Loading...</div></div>`;
+        if (userRole === 'HOSPITAL_ADMIN' || userRole === 'SUPER_ADMIN') {
+            document.getElementById('billContent').innerHTML = `
+                <form id="generateBillForm">
+                    <div class="row g-2">
+                        <div class="col-md-4"><input class="form-control" placeholder="Appointment ID" id="billApptId" required></div>
+                        <div class="col-md-4"><input class="form-control" placeholder="Patient ID" id="billPatientId" required></div>
+                        <div class="col-md-4"><input type="number" step="0.01" class="form-control" placeholder="Amount" id="billAmount" required></div>
+                    </div>
+                    <button type="submit" class="btn btn-success mt-2 btn-icon"><i class="bi bi-plus-circle"></i> Generate Bill</button>
+                </form>
+                <hr>
+                <div id="billList"></div>`;
+            document.getElementById('generateBillForm').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                try {
+                    await apiCall('POST', `${API.billing}/bills`, {
+                        appointmentId: document.getElementById('billApptId').value,
+                        patientId: document.getElementById('billPatientId').value,
+                        amount: parseFloat(document.getElementById('billAmount').value)
+                    });
+                    showSuccess('Bill generated');
+                } catch (err) { showError(err.message); }
+            });
+        } else if (userRole === 'PATIENT') {
+            loadPatientBills();
+        }
+    }
+
+    async function loadPatientBills() {
+        try {
+            const response = await apiCall('GET', `${API.billing}/bills/patient/me`);
+            const bills = response.content ? response.content : (Array.isArray(response) ? response : []);
+            const list = bills.map(b => `
+                <li class="list-group-item d-flex justify-content-between">
+                    <span>Bill #${b.id} – $${b.amount} (${b.status})</span>
+                    ${b.status === 'PENDING' ? `<button class="btn btn-sm btn-success" onclick="payBill('${b.id}')">Pay</button>` : ''}
+                </li>`).join('');
+            document.getElementById('billContent').innerHTML = `<ul class="list-group">${list || '<p>No bills.</p>'}</ul>`;
+        } catch (err) { document.getElementById('billContent').innerHTML = `<p class="text-danger">${err.message}</p>`; }
+    }
+
+    window.payBill = async (id) => {
+        try {
+            await apiCall('PUT', `${API.billing}/bills/${id}/pay`);
+            showSuccess('Bill paid');
+            renderBilling();
+        } catch (err) { showError(err.message); }
+    };
+
+    // ===================== NOTIFICATIONS =====================
+    async function renderNotifications() {
+        if (userRole !== 'HOSPITAL_ADMIN' && userRole !== 'SUPER_ADMIN') {
+            document.getElementById('contentArea').innerHTML = '<div class="alert alert-warning">Access denied</div>';
+            return;
+        }
+        document.getElementById('contentArea').innerHTML = `
+            <div class="card p-4">
+                <h4><i class="bi bi-bell"></i> Notifications</h4>
+                <form id="sendNotifForm" class="mb-4">
+                    <div class="row g-2">
+                        <div class="col-md-6"><input class="form-control" placeholder="To Email" id="notifEmail"></div>
+                        <div class="col-md-6"><input class="form-control" placeholder="To Phone" id="notifPhone"></div>
+                        <div class="col-md-6"><input class="form-control" placeholder="Subject" id="notifSubject"></div>
+                        <div class="col-md-6">
+                            <select class="form-select" id="notifChannel"><option value="EMAIL">Email</option><option value="SMS">SMS</option></select>
+                        </div>
+                        <div class="col-12"><textarea class="form-control" placeholder="Message" id="notifMessage" required></textarea></div>
+                    </div>
+                    <button type="submit" class="btn btn-success mt-2 btn-icon"><i class="bi bi-send"></i> Send</button>
+                </form>
+                <hr>
+                <button class="btn btn-info btn-icon" onclick="loadNotificationLogs()"><i class="bi bi-list"></i> Refresh Logs</button>
+                <div id="notifLogs" class="mt-3"></div>
+            </div>`;
+        document.getElementById('sendNotifForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            try {
+                await apiCall('POST', `${API.notification}/notifications/send`, {
+                    toEmail: document.getElementById('notifEmail').value,
+                    toPhone: document.getElementById('notifPhone').value,
+                    channel: document.getElementById('notifChannel').value,
+                    subject: document.getElementById('notifSubject').value,
+                    message: document.getElementById('notifMessage').value
+                });
+                showSuccess('Notification sent');
+            } catch (err) { showError(err.message); }
+        });
+    }
+
+    window.loadNotificationLogs = async function() {
+        try {
+            const logs = await apiCall('GET', `${API.notification}/notifications/logs`);
+            const list = logs.map(l => `<li class="list-group-item">${l.channel} to ${l.toEmail || l.toPhone}: ${l.message} – <span class="badge bg-${l.status === 'SENT' ? 'success' : 'danger'}">${l.status}</span></li>`).join('');
+            document.getElementById('notifLogs').innerHTML = logs.length ? `<ul class="list-group">${list}</ul>` : '<p>No logs.</p>';
+        } catch (err) { document.getElementById('notifLogs').innerHTML = `<p class="text-danger">${err.message}</p>`; }
+    };
+
+    // ===================== INITIALIZATION =====================
+    function showDashboard() {
+        document.getElementById('authPage').classList.add('hidden');
+        document.getElementById('dashboard').classList.remove('hidden');
+        buildSidebar();
+        navigate('hospitals');
+    }
+
+    if (token && userRole) {
+        showDashboard();
+    }
+</script>
+</body>
+</html>
